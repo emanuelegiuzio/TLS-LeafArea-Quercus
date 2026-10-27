@@ -1,11 +1,12 @@
 # TLSLeafArea-Quercus
 
-R scripts for whole-plant leaf area and Leaf Area Index (LAI) estimation from terrestrial laser scanning (TLS) point clouds, using Random Forest wood-leaf classification and the Maximum Unit Normal Component (MUNC) area estimation method.
+R pipeline for whole-plant leaf area and Leaf Area Index (LAI) estimation from terrestrial laser scanning (TLS) point clouds, using Random Forest wood–leaf classification and the Maximum Unit Normal Component (MUNC) area estimation method.
 
 Developed and tested on *Quercus frainetto* Ten. individuals in a declining Mediterranean oak stand in Basilicata (southern Italy).
 
-Associated publication:
-> Giuzio E (2026). A reproducible terrestrial laser scanning workflow for whole-plant leaf area and leaf area index estimation in declining Mediterranean oaks. *iForest – Biogeosciences and Forestry*. ms26/5291.
+**Associated publication:**
+
+Giuzio E (2026). A reproducible terrestrial laser scanning workflow for whole-plant leaf area and leaf area index estimation in declining Mediterranean oaks. *iForest – Biogeosciences and Forestry*. ms26/5291.
 
 ---
 
@@ -15,100 +16,110 @@ Associated publication:
 TLS point clouds (.las)
         │
         ▼
-rf_classify.R  ──►  Wood-leaf separation (Random Forest)
-                     Output: *_RF.las (RF.class, RF.prob fields)
+[Section 3] RF classification ──►  Wood–leaf separation (Random Forest)
+                                    Output: *_RF.las  (RF.class, RF.prob)
         │
         ▼
-rf_report.R    ──►  Leaf area estimation (MUNC method)
-                     Uncertainty quantification (FP, FN, σ_geo)
-                     Output: summary table, diagnostic plots
+[Section 4] LOTO validation   ──►  Leave-One-Tree-Out cross-validation
+                                    Output: LOTO_results.csv, metrics plot
+        │
+        ▼
+[Section 5] Leaf area         ──►  MUNC estimation + uncertainty
+                                    Output: RF_summary.csv, diagnostic plots
+        │
+        ▼
+[Section 6] LAI               ──►  Crown-projected LAI via ITSMe
+                                    Output: LAI_summary.csv, comparison plots
 ```
 
+All steps are contained in the single script **`tls_leaf_area_pipeline.R`**.  
+Run them in order by calling the corresponding batch functions (see Section 7 of the script for the exact call sequence).
+
 ---
 
-## Scripts
+## Script structure
 
-### `rf_classify.R`
-Trains a Random Forest classifier to separate leaf and wood points in TLS point clouds.
+| Section | Content |
+|---------|---------|
+| 0 | Package installation and loading |
+| 1 | `params` list — **edit paths and co-registration errors here** |
+| 2 | Helper functions (feature extraction, MUNC, error propagation) |
+| 3 | RF training, classification, tiled classification for large clouds |
+| 4 | Leave-One-Tree-Out (LOTO) cross-validation |
+| 5 | Leaf area estimation (MUNC) and uncertainty quantification |
+| 6 | Crown-projected LAI (ITSMe) |
+| 7 | Step-by-step run instructions |
 
-**Input:**
-- `wood_training.las` — manually labelled wood points
-- `leaf_training.las` — manually labelled leaf points
-- Individual tree `.las` files to classify
+---
 
-**Features used (26 per point):**
+## Features used for classification (26 per point)
+
 - Normalised height (Z)
-- RGB colour components (R, G, B)
-- Excess Green Index (ExG)
-- Multiscale geometric features (linearity, planarity, sphericity, curvature, point density) at four radii: 0.05, 0.10, 0.20, 0.40 m
-
-**Output per tree:**
-- `*_RF.las` with added fields:
-  - `RF.class`: binary classification (1 = leaf, 2 = wood)
-  - `RF.prob`: posterior probability of belonging to the leaf class
-
-**Output batch:**
-- `00_RF_summary.csv`
-- `00_RF_feature_importance.png`
-- `00_RF_vs_CANUPO.png` (if CANUPO classification is available)
+- RGB colour components (R, G, B) and Excess Green Index (ExG)
+- Laser intensity, return number, number of returns, return ratio
+- Multiscale geometric features (linearity, planarity, sphericity, curvature, local point density) at four radii: 0.05, 0.10, 0.20, 0.40 m
 
 ---
 
-### `rf_report.R`
-Estimates whole-plant leaf area and LAI from classified point clouds using the MUNC method, and quantifies estimation uncertainty.
+## Uncertainty quantification
 
-**Input:**
-- `*_RF.las` files produced by `rf_classify.R`
-- Co-registration error values (from Cyclone REGISTER 360 PLUS reports, entered manually)
-- Projected crown area (PCA) per tree (from ITSMe R package)
+**Classification uncertainty** — asymmetric range [−FP, +FN] derived from posterior RF probabilities (RF.prob): false positives overestimate leaf area, false negatives underestimate it.
 
-**Uncertainty quantification:**
-- Classification uncertainty: asymmetric range [−FP, +FN] based on posterior RF.prob
-- Geometric uncertainty: σ_geo propagated in quadrature from co-registration error, voxelisation positional uncertainty, and normal estimation error
+**Geometric uncertainty** — σ_geo propagated in quadrature from three components:
+1. Co-registration error (from Cyclone REGISTER 360 PLUS reports, entered manually in `params`)
+2. Voxelisation positional uncertainty
+3. Normal estimation error (PCA-based)
 
-**Output per tree:**
-- `*_report.txt`: leaf area, LAI, uncertainty components
-- Diagnostic plots (top view, side view, vertical profile)
-
-**Output batch:**
-- `00_RF_summary.csv`: complete results table
-- `00_compare_area_RF.png`: leaf area comparison across individuals
+Final credible range per tree: [area − FP − 1.96 σ_geo, area + FN + 1.96 σ_geo]
 
 ---
 
 ## Requirements
 
-- R version [X.X.X]
-- Required packages:
+R ≥ 4.1.0
 
-| Package  | Purpose                        |
-|----------|--------------------------------|
-| lidR     | LAS file I/O and processing    |
-| ranger   | Random Forest implementation   |
-| caret    | Cross-validation               |
-| FNN      | k-nearest neighbour search     |
-| ggplot2  | Diagnostic plots               |
-| dplyr    | Data manipulation              |
-| tidyr    | Data reshaping                 |
-| viridis  | Colour scales                  |
-| progress | Progress bar                   |
-| tools    | File path utilities            |
+| Package | Purpose |
+|---------|---------|
+| lidR | LAS file I/O and processing |
+| ranger | Random Forest implementation |
+| caret | Cross-validation |
+| FNN | k-nearest neighbour search |
+| ggplot2 | Diagnostic plots |
+| dplyr | Data manipulation |
+| tidyr | Data reshaping |
+| viridis | Colour scales |
+| progress | Progress bar |
+| tools | File path utilities |
+| ITSMe | Crown projected area (GitHub only) |
 
-Install all packages with:
+Install CRAN packages:
+
 ```r
 install.packages(c("lidR", "ranger", "caret", "FNN", "ggplot2",
                    "dplyr", "tidyr", "viridis", "progress", "tools"))
+```
+
+Install ITSMe from GitHub:
+
+```r
+# install.packages("devtools")
+devtools::install_github("lmterryn/ITSMe")
 ```
 
 ---
 
 ## Usage
 
-1. Edit the `params` list at the top of each script to set input/output paths.
-2. Run `rf_classify.R` to train the RF classifier and classify all trees.
-3. Run `rf_report.R` to estimate leaf area and quantify uncertainty.
+1. Open `tls_leaf_area_pipeline.R` and edit the `params` list in **Section 1**:
+   - `input_dir` / `output_dir` — working directories
+   - `training_wood_las` / `training_leaf_las` — manually labelled training files
+   - `coreg_table` — co-registration errors from your scan registration report
+2. Run **Section 3** (`run_classification_batch()`) to train the RF and classify all trees.
+3. *(Optional)* Run **Section 4** (`run_loto()`) to validate the classifier with Leave-One-Tree-Out CV. Requires annotated wood/leaf files for at least two trees.
+4. Run **Section 5** (`run_leaf_area_batch()`) to estimate leaf area and propagate uncertainties.
+5. Run **Section 6** (`run_lai_batch()`) to compute crown-projected LAI.
 
-> **Note:** Before applying to a new species or scanning season, the RF classifier should be retrained or re-calibrated on representative training data, particularly where the spectral contrast between leaf and woody tissue differs from that of deciduous oaks during the leaf-on season.
+> **Note:** Before applying to a new species or scanning season, retrain the RF classifier on representative training data, particularly where the spectral contrast between leaf and woody tissue differs from that of deciduous oaks during the leaf-on season.
 
 ---
 
